@@ -17,7 +17,3 @@ services:
     networks:
       - sail
 
-  # يعرّض منفذ MySQL للخارج (اختياري)
-  mysql:
-    ports:
-      - "3306:3306"
