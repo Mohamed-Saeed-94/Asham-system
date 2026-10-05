@@ -4,7 +4,7 @@ use Illuminate\Support\Facades\Route;
 use Modules\Companies\Http\Controllers\CompanyController;
 use Modules\Companies\Http\Controllers\CompanyTransactionController;
 
-Route::middleware(['web', 'auth'])->group(function () {
+Route::middleware(['web', 'auth', 'permission.route'])->group(function () {
     Route::get('companies/dashboard', [CompanyController::class, 'dashboard'])
         ->name('companies.dashboard');
 

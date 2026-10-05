@@ -180,6 +180,8 @@ return [
             'audit.logs',
             'password.*',
             'verification.*',
+            // أسماء يولّدها route:cache للمسارات غير المسماة؛ بدونها يختلف السلوك بين cached/uncached
+            'generated::*',
         ],
     ],
 

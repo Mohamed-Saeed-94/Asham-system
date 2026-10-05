@@ -16,7 +16,7 @@ use Modules\Lookups\Http\Controllers\TitleController;
 use Modules\Lookups\Http\Controllers\TransactionStatusController;
 use Modules\Lookups\Http\Controllers\TransactionTypeController;
 
-Route::middleware(['web', 'auth'])->prefix('settings')->group(function () {
+Route::middleware(['web', 'auth', 'permission.route'])->prefix('settings')->group(function () {
     Route::resource('nationalities', NationalityController::class);
     Route::resource('titles', TitleController::class);
     Route::resource('categories', CategoryController::class);

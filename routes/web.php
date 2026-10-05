@@ -23,12 +23,6 @@ use App\Models\User;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Schema;
 
-if (!app()->runningInConsole() && Schema::hasTable('settings')) {
-    $settings = Setting::first();
-} else {
-    $settings = null;
-}
-
 // لغة الواجهة
 Route::post('/lang/toggle', [LanguageController::class, 'toggle'])->name('lang.toggle');
 Route::get('/lang/{locale}', [LanguageController::class, 'switch'])->name('lang.switch');
@@ -40,9 +34,8 @@ Route::get('/', function () {
         : redirect()->route('login');
 });
 
-Route::view('/loading', 'loading', [
-    'setting' => $settings,
-])->name('loading');
+// $setting يصل للواجهة عبر View::composer في AppServiceProvider (بدون استعلام أثناء تحميل الـroutes)
+Route::view('/loading', 'loading')->name('loading');
 
 Route::middleware(['auth', 'permission.route'])->group(function () {
 
@@ -76,6 +69,7 @@ Route::middleware(['auth', 'permission.route'])->group(function () {
             ->name('settings.database.restore');
 
         Route::post('database/export', [DatabaseBackupController::class, 'export'])
+            ->middleware('role:admin')
             ->name('settings.database.export');
         Route::post('database/import', [DatabaseBackupController::class, 'import'])
             ->middleware('role:admin')
@@ -94,11 +88,7 @@ Route::middleware(['auth', 'permission.route'])->group(function () {
             ->withoutMiddleware('permission.route');
     });
 
-    // CRUDات رئيسية
-    require base_path('Modules/Customers/Routes/web.php');
-    require base_path('Modules/Guarantors/Routes/web.php');
-    require base_path('Modules/Investors/Routes/web.php');
-    require base_path('Modules/Contracts/Routes/web.php');
+    // مسارات الموديولات (العملاء/الضامنين/المستثمرين/العقود...) تُسجَّل مرة واحدة من ServiceProvider كل موديول
 
     Route::resource('notes', NoteController::class)->except(['show']);
     Route::patch('notes/{note}/complete', [NoteController::class, 'complete'])->name('notes.complete');

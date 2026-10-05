@@ -45,6 +45,7 @@ return array (
   'Search Users' => 'Search users',
   'Search Users Placeholder' => 'Search by name or email…',
   'Clear Search' => 'Clear',
+  'Add User' => 'Add user',
   'Search Users Help' => 'Results update instantly as you type.',
   'No users match your search.' => 'No users match your search.',
   'No users match query' => 'No users match ":query".',

@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Auth;
 
+use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -27,5 +28,29 @@ class RegistrationTest extends TestCase
 
         $this->assertAuthenticated();
         $response->assertRedirect(route('dashboard', absolute: false));
+    }
+
+    public function test_guests_cannot_register_once_a_user_exists(): void
+    {
+        User::factory()->create();
+
+        $this->get('/register')->assertForbidden();
+
+        $this->post('/register', [
+            'name' => 'Intruder',
+            'email' => 'intruder@example.com',
+            'password' => 'password',
+            'password_confirmation' => 'password',
+        ])->assertForbidden();
+
+        $this->assertGuest();
+        $this->assertDatabaseMissing('users', ['email' => 'intruder@example.com']);
+    }
+
+    public function test_authenticated_users_without_permission_cannot_register_others(): void
+    {
+        $user = User::factory()->create();
+
+        $this->actingAs($user)->get('/register')->assertForbidden();
     }
 }

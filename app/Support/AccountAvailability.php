@@ -11,6 +11,13 @@ use Modules\Ledger\Entities\LedgerEntry;
 
 class AccountAvailability
 {
+    /**
+     * نتائج فحص الـschema محفوظة طوال عمر العملية بدل الاستعلام عنها مع كل حساب.
+     *
+     * @var array<string, bool>
+     */
+    protected static array $schemaCache = [];
+
     public static function compute(string $type, int $id, ?string $from = null, ?string $to = null): ?array
     {
         $type = $type === 'safe' ? 'safe' : 'bank';
@@ -57,7 +64,7 @@ class AccountAvailability
 
     protected static function sumInOut(Builder $base): array
     {
-        if (Schema::hasColumn('ledger_entries', 'direction')) {
+        if (self::hasColumn('ledger_entries', 'direction')) {
             $in = (clone $base)->where('direction', 'in')->sum('amount');
             $out = (clone $base)->where('direction', 'out')->sum('amount');
 
@@ -67,7 +74,7 @@ class AccountAvailability
         $typeIn = null;
         $typeOut = null;
 
-        if (Schema::hasTable('transaction_types')) {
+        if (self::hasTable('transaction_types')) {
             $typeIn = DB::table('transaction_types')->whereIn('name', ['إيداع', 'ايداع', 'Deposit', 'Incoming', 'In'])->value('id');
             $typeOut = DB::table('transaction_types')->whereIn('name', ['سحب', 'Withdrawal', 'Outgoing', 'Out'])->value('id');
         }
@@ -75,9 +82,9 @@ class AccountAvailability
         $inQuery = (clone $base);
         $outQuery = (clone $base);
 
-        $hasTypeColumn = Schema::hasColumn('ledger_entries', 'transaction_type_id');
-        $hasStatusColumn = Schema::hasColumn('ledger_entries', 'transaction_status_id');
-        $hasStatusesTable = Schema::hasTable('transaction_statuses');
+        $hasTypeColumn = self::hasColumn('ledger_entries', 'transaction_type_id');
+        $hasStatusColumn = self::hasColumn('ledger_entries', 'transaction_status_id');
+        $hasStatusesTable = self::hasTable('transaction_statuses');
 
         if ($hasTypeColumn || ($hasStatusColumn && $hasStatusesTable)) {
             $inQuery->where(function ($query) use ($typeIn, $hasTypeColumn, $hasStatusColumn) {
@@ -89,7 +96,7 @@ class AccountAvailability
                     $query->orWhereIn('transaction_status_id', function ($sub) use ($typeIn) {
                         $sub->select('id')->from('transaction_statuses');
 
-                        if (! is_null($typeIn) && Schema::hasColumn('transaction_statuses', 'transaction_type_id')) {
+                        if (! is_null($typeIn) && self::hasColumn('transaction_statuses', 'transaction_type_id')) {
                             $sub->where('transaction_type_id', $typeIn);
                         } else {
                             $sub->where('name', 'like', '%إيداع%')
@@ -108,7 +115,7 @@ class AccountAvailability
                     $query->orWhereIn('transaction_status_id', function ($sub) use ($typeOut) {
                         $sub->select('id')->from('transaction_statuses');
 
-                        if (! is_null($typeOut) && Schema::hasColumn('transaction_statuses', 'transaction_type_id')) {
+                        if (! is_null($typeOut) && self::hasColumn('transaction_statuses', 'transaction_type_id')) {
                             $sub->where('transaction_type_id', $typeOut);
                         } else {
                             $sub->where('name', 'like', '%سحب%')
@@ -128,5 +135,15 @@ class AccountAvailability
         $out = (clone $base)->where('amount', '<', 0)->sum(DB::raw('ABS(amount)'));
 
         return [(float) $in, (float) $out];
+    }
+
+    protected static function hasColumn(string $table, string $column): bool
+    {
+        return self::$schemaCache["column:{$table}.{$column}"] ??= Schema::hasColumn($table, $column);
+    }
+
+    protected static function hasTable(string $table): bool
+    {
+        return self::$schemaCache["table:{$table}"] ??= Schema::hasTable($table);
     }
 }

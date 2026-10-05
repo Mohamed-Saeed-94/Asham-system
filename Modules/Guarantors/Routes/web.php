@@ -4,7 +4,7 @@ use Illuminate\Support\Facades\Route;
 use Modules\Guarantors\Http\Controllers\GuarantorController;
 use Modules\Guarantors\Http\Controllers\GuarantorImportController;
 
-Route::middleware(['web', 'auth'])->group(function () {
+Route::middleware(['web', 'auth', 'permission.route'])->group(function () {
     Route::get('guarantors/dashboard', [GuarantorController::class, 'dashboard'])
         ->name('guarantors.dashboard');
 

@@ -218,6 +218,12 @@
               </div>
             </div>
 
+            @can('register')
+              <a href="{{ route('register') }}" class="btn btn-primary w-100 mb-4">
+                <i class="bi bi-person-plus me-1"></i> @lang('users.Add User')
+              </a>
+            @endcan
+
             <form method="GET" action="{{ route('users.index') }}" class="mb-4">
               <label for="user-search" class="form-label fw-semibold">@lang('users.Search Users')</label>
               <div class="input-group search-input-group">

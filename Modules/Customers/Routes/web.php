@@ -5,7 +5,7 @@ use Modules\Customers\Http\Controllers\CustomerController;
 use Modules\Customers\Http\Controllers\CustomerImportController;
 use Modules\Customers\Http\Controllers\CustomerReportController;
 
-Route::middleware(['web', 'auth'])->group(function () {
+Route::middleware(['web', 'auth', 'permission.route'])->group(function () {
     Route::get('customers/dashboard', [CustomerController::class, 'dashboard'])
         ->name('customers.dashboard');
 

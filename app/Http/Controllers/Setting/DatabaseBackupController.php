@@ -34,6 +34,8 @@ class DatabaseBackupController extends Controller
      */
     public function restore()
     {
+        $this->ensureAdmin();
+
         return view('settings.database-restore');
     }
 
@@ -42,6 +44,8 @@ class DatabaseBackupController extends Controller
      */
     public function export()
     {
+        $this->ensureAdmin();
+
         $connectionName = config('database.default');
         $connectionConfig = config("database.connections.{$connectionName}");
 
@@ -95,6 +99,8 @@ class DatabaseBackupController extends Controller
      */
     public function import(Request $request)
     {
+        $this->ensureAdmin();
+
         $maxKilobytes = (int) config('backup.import.max_upload_kilobytes', 0);
 
         $rules = ['required', 'file'];
@@ -187,6 +193,15 @@ class DatabaseBackupController extends Controller
     }
 
     /**
+     * Defense in depth: export/import/restore expose or replace the whole database,
+     * so they require the admin role even if the route middleware is ever changed.
+     */
+    private function ensureAdmin(): void
+    {
+        abort_unless(auth()->user()?->hasRole('admin'), 403);
+    }
+
+    /**
      * Determine if the uploaded backup file has an allowed extension.
      */
     private function isValidBackupExtension(UploadedFile $file): bool
@@ -260,6 +275,8 @@ class DatabaseBackupController extends Controller
                 throw new \RuntimeException('Unable to open the uploaded archive.');
             }
 
+            $this->assertArchiveEntriesAreSafe($archive);
+
             if ($archive->extractTo($temporaryDirectory) === false) {
                 throw new \RuntimeException('Unable to extract the uploaded archive.');
             }
@@ -285,8 +302,49 @@ class DatabaseBackupController extends Controller
 
             return $contents;
         } finally {
-            File::deleteDirectory($temporaryDirectory);
+            $this->deleteTemporaryImportDirectory($temporaryDirectory);
         }
+    }
+
+    /**
+     * Reject archives whose entries could be written outside the extraction directory (Zip Slip).
+     */
+    private function assertArchiveEntriesAreSafe(ZipArchive $archive): void
+    {
+        for ($index = 0; $index < $archive->numFiles; $index++) {
+            $name = (string) $archive->getNameIndex($index);
+            $normalized = str_replace('\\', '/', $name);
+
+            $isAbsolute = str_starts_with($normalized, '/') || preg_match('/^[A-Za-z]:/', $normalized) === 1;
+            $hasTraversal = in_array('..', explode('/', $normalized), true);
+
+            if ($name === '' || str_contains($name, "\0") || $isAbsolute || $hasTraversal) {
+                throw new RuntimeException('The uploaded archive contains an unsafe file path.');
+            }
+        }
+    }
+
+    /**
+     * Delete a temporary import directory, but only if it lives under storage/app/import-*.
+     */
+    private function deleteTemporaryImportDirectory(string $directory): void
+    {
+        $allowedParent = realpath(storage_path('app'));
+        $resolved = realpath($directory);
+
+        if ($allowedParent === false || $resolved === false) {
+            return;
+        }
+
+        if (dirname($resolved) !== $allowedParent || ! str_starts_with(basename($resolved), 'import-')) {
+            Log::warning('Refused to delete unexpected directory during backup import cleanup.', [
+                'directory' => $resolved,
+            ]);
+
+            return;
+        }
+
+        File::deleteDirectory($resolved);
     }
 
     /**

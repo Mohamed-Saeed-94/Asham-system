@@ -199,7 +199,6 @@ trait SeedsRolesAndPermissions
                         'ajax.investors.liquidity',
                         'investors.cash',
                         'investors.liquidity',
-                        'settings.database.export',
                     ], true)
                 );
             })),
@@ -241,6 +240,8 @@ trait SeedsRolesAndPermissions
     {
         return [
             'installments.cancel_payment',
+            // النسخة تحتوي قاعدة البيانات كاملة (المستخدمين، كلمات المرور المشفّرة، البيانات المالية)
+            'settings.database.export',
             'settings.database.import',
             'settings.database.restore',
         ];
@@ -327,7 +328,6 @@ trait SeedsRolesAndPermissions
     {
         return [
             'settings.database.index',
-            'settings.database.export',
         ];
     }
 

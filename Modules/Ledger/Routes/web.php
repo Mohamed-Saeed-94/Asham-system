@@ -5,7 +5,7 @@ use Modules\Ledger\Http\Controllers\LedgerController;
 use Modules\Ledger\Http\Controllers\LedgerEntriesImportController;
 use Modules\Ledger\Http\Controllers\OfficeLedgerController;
 
-Route::middleware(['web', 'auth'])->group(function () {
+Route::middleware(['web', 'auth', 'permission.route'])->group(function () {
     Route::prefix('ledger/import')->name('ledger.')->group(function () {
         Route::get('/',               [LedgerEntriesImportController::class, 'create'])->name('import.form');
         Route::post('/',              [LedgerEntriesImportController::class, 'store'])->name('import');

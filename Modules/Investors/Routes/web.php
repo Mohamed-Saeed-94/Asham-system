@@ -10,7 +10,7 @@ use Modules\Investors\Http\Controllers\InvestorStatementController;
 use Modules\Investors\Http\Controllers\InvestorLedgerController;
 use Modules\Investors\Http\Controllers\InvestorLedgerImportController;
 
-Route::middleware(['web', 'auth'])->group(function () {
+Route::middleware(['web', 'auth', 'permission.route'])->group(function () {
     Route::prefix('investors/import')->name('investors.')->group(function () {
         Route::get('/',               [InvestorImportController::class, 'create'])->name('import.form');
         Route::post('/',              [InvestorImportController::class, 'store'])->name('import');

@@ -29,7 +29,7 @@ class AuthServiceProvider extends ServiceProvider
         });
 
         Gate::define('manage-settings', function (User $user): bool {
-            return $user->email === 'admin@example.com';
+            return $user->hasRole('admin');
         });
     }
 }

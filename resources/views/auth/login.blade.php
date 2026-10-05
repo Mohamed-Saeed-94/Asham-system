@@ -95,10 +95,7 @@
           </a>
         @endif
 
-        <p class="small mb-0">
-          {{ __("Don't have an account?") }}
-          <a href="{{ route('register') }}">{{ __('Create an account') }}</a>
-        </p>
+        {{-- التسجيل الذاتي مغلق؛ إنشاء المستخدمين يتم بواسطة المدير --}}
       </div>
     </div>
   </form>

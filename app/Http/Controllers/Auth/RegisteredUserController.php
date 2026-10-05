@@ -17,8 +17,10 @@ class RegisteredUserController extends Controller
     /**
      * Display the registration view.
      */
-    public function create(): View
+    public function create(Request $request): View
     {
+        $this->ensureRegistrationAllowed($request);
+
         return view('auth.register');
     }
 
@@ -29,6 +31,8 @@ class RegisteredUserController extends Controller
      */
     public function store(Request $request): RedirectResponse
     {
+        $this->ensureRegistrationAllowed($request);
+
         $request->validate([
             'name' => ['required', 'string', 'max:255'],
             'email' => ['required', 'string', 'lowercase', 'email', 'max:255', 'unique:'.User::class],
@@ -43,8 +47,30 @@ class RegisteredUserController extends Controller
 
         event(new Registered($user));
 
+        // المدير ينشئ حسابًا لمستخدم آخر: لا نبدّل جلسته، ونوجّهه لتعيين الأدوار
+        if ($request->user()) {
+            return redirect()->route('users.roles.edit', $user);
+        }
+
         Auth::login($user);
 
         return redirect(route('dashboard', absolute: false));
+    }
+
+    /**
+     * التسجيل الذاتي مغلق: مسموح فقط عند الإعداد الأول (لا يوجد أي مستخدم)
+     * أو لمستخدم مسجّل لديه صلاحية "register" (المدير يمرّ عبر Gate::before).
+     */
+    protected function ensureRegistrationAllowed(Request $request): void
+    {
+        $user = $request->user();
+
+        if ($user) {
+            abort_unless($user->can('register'), 403);
+
+            return;
+        }
+
+        abort_if(User::query()->exists(), 403);
     }
 }

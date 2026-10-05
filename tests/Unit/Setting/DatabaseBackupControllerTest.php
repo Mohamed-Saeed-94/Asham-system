@@ -1,58 +1,61 @@
 <?php
 
-namespace {
-    if (! function_exists('storage_path')) {
-        function storage_path(string $path = ''): string
-        {
-            $base = sys_get_temp_dir().DIRECTORY_SEPARATOR.'laravel-storage-tests';
-
-            if (! is_dir($base)) {
-                mkdir($base, 0777, true);
-            }
-
-            if ($path === '') {
-                return $base;
-            }
-
-            return $base.DIRECTORY_SEPARATOR.ltrim($path, DIRECTORY_SEPARATOR);
-        }
-    }
-}
-
 namespace Tests\Unit\Setting {
 
 use App\Http\Controllers\Setting\DatabaseBackupController;
 use Illuminate\Container\Container;
 use Illuminate\Encryption\Encrypter;
 use Illuminate\Filesystem\Filesystem;
+use Illuminate\Foundation\Application;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Facade;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use ReflectionClass;
+use RuntimeException;
 use ZipArchive;
 
+/**
+ * تحذير: نسخة سابقة من هذا الاختبار حذفت مجلد storage الحقيقي للمشروع، لأن storage_path()
+ * كانت تشير إليه. الآن كل الملفات المؤقتة داخل مجلد معزول في sys_get_temp_dir()، و storage_path()
+ * موجّهة إليه، والحذف لا يتم إلا بعد فحص assertSafeToDelete().
+ */
 class DatabaseBackupControllerTest extends TestCase
 {
-    private array $temporaryFiles = [];
+    private const TEMP_DIRECTORY_PREFIX = 'saham-backup-test-';
+
+    private ?string $isolatedDirectory = null;
+    private ?Container $previousContainer = null;
+    private $previousFacadeApplication = null;
     private $previousCryptInstance;
 
     protected function setUp(): void
     {
         parent::setUp();
 
-        $container = new Container();
-        $container->singleton('files', fn () => new Filesystem());
-        Facade::setFacadeApplication($container);
+        $this->previousContainer = Container::getInstance();
+        $this->previousFacadeApplication = Facade::getFacadeApplication();
+
+        $this->isolatedDirectory = $this->createIsolatedDirectory();
+
+        // Application جديد (يصبح Container::getInstance) بحيث storage_path() يعيد المجلد المعزول فقط
+        $app = new Application($this->isolatedDirectory);
+        $app->useStoragePath($this->isolatedDirectory.DIRECTORY_SEPARATOR.'storage');
+        $app->singleton('files', fn () => new Filesystem());
+        Facade::setFacadeApplication($app);
+
+        $resolvedStorage = storage_path();
+        if (! str_starts_with($resolvedStorage, $this->isolatedDirectory.DIRECTORY_SEPARATOR)) {
+            $this->fail("storage_path() is not isolated (resolved to {$resolvedStorage}); aborting before touching the filesystem.");
+        }
 
         $key = random_bytes(32);
         $encrypter = new Encrypter($key, 'AES-256-CBC');
         $this->previousCryptInstance = Crypt::swap($encrypter);
     }
 
-    /**
-     * @dataProvider basicSplitProvider
-     */
+    #[DataProvider('basicSplitProvider')]
     public function testSplitSqlStatements(string $sql, array $expected): void
     {
         $this->assertSame($expected, $this->splitStatements($sql));
@@ -92,7 +95,7 @@ class DatabaseBackupControllerTest extends TestCase
     public function testEncryptedArchiveIsDecryptedBeforeExtraction(): void
     {
         $sql = "SELECT 42;\n";
-        $archivePath = tempnam(sys_get_temp_dir(), 'db-backup-zip-');
+        $archivePath = $this->temporaryPath('db-backup-zip-');
 
         $zip = new ZipArchive();
         $opened = $zip->open($archivePath, ZipArchive::OVERWRITE);
@@ -105,12 +108,29 @@ class DatabaseBackupControllerTest extends TestCase
         $zip->close();
 
         $archiveContents = file_get_contents($archivePath);
-        $this->temporaryFiles[] = $archivePath;
 
         $encryptedArchive = Crypt::encryptString($archiveContents);
         $encryptedPath = $this->createTemporaryFile($encryptedArchive);
 
         $this->assertSame($sql, $this->extractSqlFromUpload($encryptedPath, 'enc'));
+    }
+
+    public function testArchiveWithPathTraversalIsRejected(): void
+    {
+        $archivePath = $this->temporaryPath('db-backup-zip-slip-');
+
+        $zip = new ZipArchive();
+        $zip->open($archivePath, ZipArchive::OVERWRITE);
+        $zip->addFromString('../escaped.sql', "SELECT 1;\n");
+        $zip->close();
+
+        $this->expectException(RuntimeException::class);
+
+        try {
+            $this->extractSqlFromUpload($archivePath, 'zip');
+        } finally {
+            $this->assertFileDoesNotExist(dirname(storage_path('app')).DIRECTORY_SEPARATOR.'escaped.sql');
+        }
     }
 
     public function testUnexpectedExtensionIsRejected(): void
@@ -128,26 +148,23 @@ class DatabaseBackupControllerTest extends TestCase
             Facade::clearResolvedInstance('encrypter');
         }
 
-        Facade::setFacadeApplication(null);
+        Facade::setFacadeApplication($this->previousFacadeApplication);
+        Container::setInstance($this->previousContainer);
 
-        $storageBase = storage_path();
-        if (is_dir($storageBase)) {
-            $this->deleteDirectory($storageBase);
+        // نحذف فقط المجلد المؤقت الذي أنشأناه بأنفسنا، وليس storage_path() أبدًا
+        if ($this->isolatedDirectory !== null) {
+            $this->deleteDirectory($this->isolatedDirectory);
         }
 
-        foreach ($this->temporaryFiles as $path) {
-            if (is_string($path) && $path !== '' && file_exists($path)) {
-                @unlink($path);
-            }
-        }
-
-        $this->temporaryFiles = [];
+        $this->isolatedDirectory = null;
+        $this->previousContainer = null;
+        $this->previousFacadeApplication = null;
         $this->previousCryptInstance = null;
 
         parent::tearDown();
     }
 
-    public function basicSplitProvider(): iterable
+    public static function basicSplitProvider(): iterable
     {
         yield 'custom delimiter with reset' => [
             <<<'SQL'
@@ -220,21 +237,81 @@ SQL,
 
     private function fakeUploadedFile(string $name, ?string $mimeType = null): UploadedFile
     {
-        $path = tempnam(sys_get_temp_dir(), 'db-backup-test-');
+        $path = $this->temporaryPath('db-backup-test-');
         file_put_contents($path, 'dummy');
-
-        $this->temporaryFiles[] = $path;
 
         return new UploadedFile($path, $name, $mimeType, null, true);
     }
 
     private function createTemporaryFile(string $contents): string
     {
-        $path = tempnam(sys_get_temp_dir(), 'db-backup-encrypted-');
+        $path = $this->temporaryPath('db-backup-encrypted-');
         file_put_contents($path, $contents);
-        $this->temporaryFiles[] = $path;
 
         return $path;
+    }
+
+    private function createIsolatedDirectory(): string
+    {
+        $tempRoot = realpath(sys_get_temp_dir());
+
+        if ($tempRoot === false) {
+            throw new RuntimeException('System temp directory is not available.');
+        }
+
+        $directory = $tempRoot.DIRECTORY_SEPARATOR.self::TEMP_DIRECTORY_PREFIX.bin2hex(random_bytes(8));
+
+        if (! mkdir($directory, 0700) && ! is_dir($directory)) {
+            throw new RuntimeException("Unable to create isolated test directory {$directory}.");
+        }
+
+        $this->assertSafeToDelete($directory);
+
+        return $directory;
+    }
+
+    private function temporaryPath(string $prefix): string
+    {
+        $path = tempnam((string) $this->isolatedDirectory, $prefix);
+
+        if ($path === false || ! str_starts_with($path, $this->isolatedDirectory.DIRECTORY_SEPARATOR)) {
+            throw new RuntimeException('Unable to create a temporary file inside the isolated directory.');
+        }
+
+        return $path;
+    }
+
+    /**
+     * يرفض أي حذف خارج المجلد المؤقت المعزول: لا مسار المشروع، ولا storage الحقيقي، ولا أي شيء خارج sys_get_temp_dir().
+     */
+    private function assertSafeToDelete(string $directory): void
+    {
+        $target = realpath($directory);
+        $tempRoot = realpath(sys_get_temp_dir());
+
+        if ($target === false || $tempRoot === false) {
+            throw new RuntimeException("Refusing to delete unresolved path [{$directory}].");
+        }
+
+        $forbidden = [realpath(dirname(__DIR__, 3))];
+
+        if ($this->previousContainer instanceof Application) {
+            $forbidden[] = realpath($this->previousContainer->basePath());
+            $forbidden[] = realpath($this->previousContainer->storagePath());
+        }
+
+        foreach (array_filter($forbidden) as $protected) {
+            if ($target === $protected
+                || str_starts_with($target.DIRECTORY_SEPARATOR, $protected.DIRECTORY_SEPARATOR)
+                || str_starts_with($protected.DIRECTORY_SEPARATOR, $target.DIRECTORY_SEPARATOR)) {
+                throw new RuntimeException("Refusing to delete [{$target}]: it overlaps protected path [{$protected}].");
+            }
+        }
+
+        if (! str_starts_with($target, $tempRoot.DIRECTORY_SEPARATOR)
+            || ! str_starts_with(basename($target), self::TEMP_DIRECTORY_PREFIX)) {
+            throw new RuntimeException("Refusing to delete [{$target}]: not an isolated test directory.");
+        }
     }
 
     private function deleteDirectory(string $directory): void
@@ -243,6 +320,13 @@ SQL,
             return;
         }
 
+        $this->assertSafeToDelete($directory);
+
+        $this->deleteTree($directory);
+    }
+
+    private function deleteTree(string $directory): void
+    {
         $items = scandir($directory);
 
         if ($items === false) {
@@ -256,8 +340,8 @@ SQL,
 
             $path = $directory.DIRECTORY_SEPARATOR.$item;
 
-            if (is_dir($path)) {
-                $this->deleteDirectory($path);
+            if (is_dir($path) && ! is_link($path)) {
+                $this->deleteTree($path);
             } else {
                 @unlink($path);
             }
