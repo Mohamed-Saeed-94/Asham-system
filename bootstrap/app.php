@@ -75,6 +75,9 @@ return Application::configure(basePath: dirname(__DIR__))
         ]);
     })
     ->withMiddleware(function (Middleware $middleware): void {
+        // الثقة في الـ reverse proxy علشان Laravel يولّد روابط https لما الدخول من الدومين
+        $middleware->trustProxies(at: '*');
+
         // ضيف SetLocale في web (append = يشتغل بعد وسطاء الويب الافتراضيين)
         $middleware->web(append: [
             SetLocale::class,
